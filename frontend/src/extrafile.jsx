@@ -3,23 +3,25 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import TodoContract from "./TodoContractABI.json";
 
+// ✅ Replace with your latest deployed address
 const TODO_CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
 function App() {
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState("");
   const [account, setAccount] = useState(null);
-  const [readContract, setReadContract] = useState(null);
-  const [writeContract, setWriteContract] = useState(null);
+  const [readContract,setReadContract] = useState(null);
+  const [writeContract,setWriteContract] = useState(null);
 
-  useEffect(() => {
-    async function setupContracts() {
-      if (!window.ethereum) {
-        alert("Please install MetaMask!");
-        return;
-      }
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
+
+  useEffect(()=>{
+    async function setupContracts(){
+    if (!window.ethereum) {
+      alert("Please install MetaMask!");
+      return;
+    }
+      const provider =new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner(); 
       const abiToUse = TodoContract.abi || TodoContract;
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts",
@@ -34,12 +36,51 @@ function App() {
         TODO_CONTRACT_ADDRESS,
         abiToUse,
         signer
-      ));
+      ));      
     }
     setupContracts();
-  }, [])
+  },[])
 
+  const box = {
+  padding: "2rem",
+  fontFamily: "Arial",
+};
 
+const inputStyle = {
+  padding: "0.5rem",
+  marginRight: "0.5rem",
+  width: "250px",
+  borderRadius: "6px",
+  border: "1px solid #ccc",
+};
+
+const btn = {
+  padding: "0.5rem 1rem",
+  border: "none",
+  borderRadius: "6px",
+  cursor: "pointer",
+  color: "white",
+};
+
+const smallBtn = {
+  padding: "0.3rem 0.6rem",
+  border: "none",
+  borderRadius: "4px",
+  cursor: "pointer",
+  color: "white",
+};
+
+const taskItem = {
+  marginBottom: "0.5rem",
+  background: "#f8f8f8",
+  color: "black",
+  padding: "0.5rem",
+  borderRadius: "8px",
+  width: "320px",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+};
 
 
   // ✅ Load tasks from blockchain
@@ -96,33 +137,21 @@ function App() {
   }
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "Arial" }}>
+    <div style={box}>
       <h1>📝 Blockchain Todo List</h1>
       <p>Connected Account: {account || "Not connected"}</p>
 
       <div style={{ marginBottom: "1rem" }}>
         <input
-          style={{
-            padding: "0.5rem",
-            marginRight: "0.5rem",
-            width: "250px",
-            borderRadius: "6px",
-            border: "1px solid #ccc",
-          }}
+          style={inputStyle}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Enter a new task"
         />
+
         <button
           onClick={createTask}
-          style={{
-            padding: "0.5rem 1rem",
-            backgroundColor: "#4CAF50",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-          }}
+          style={{ ...btn, background: "#4CAF50" }}
         >
           Add Task
         </button>
@@ -130,57 +159,12 @@ function App() {
 
       <ul style={{ listStyle: "none", padding: 0 }}>
         {tasks.map((t) => (
-          <li
+          <Task
             key={t.id}
-            style={{
-              marginBottom: "0.5rem",
-              background: "#f8f8f8",
-              color: "black",
-              padding: "0.5rem",
-              borderRadius: "8px",
-              width: "320px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <span
-              style={{
-                textDecoration: t.completed ? "line-through" : "none",
-              }}
-            >
-              {t.content}
-            </span>
-            <div>
-              <button
-                onClick={() => toggleTask(t.id)}
-                style={{
-                  marginRight: "0.5rem",
-                  background: "#007BFF",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  padding: "0.3rem 0.6rem",
-                  cursor: "pointer",
-                }}
-              >
-                Toggle
-              </button>
-              <button
-                onClick={() => deleteTask(t.id)}
-                style={{
-                  background: "#E74C3C",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  padding: "0.3rem 0.6rem",
-                  cursor: "pointer",
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </li>
+            t={t}
+            toggleTask={toggleTask}
+            deleteTask={deleteTask}
+          />
         ))}
       </ul>
     </div>
