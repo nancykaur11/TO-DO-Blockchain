@@ -2,98 +2,221 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import TodoContract from "./TodoContractABI.json";
 
-const TODO_CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 
-function App() {
+export default function App() {
   const [tasks, setTasks] = useState([]);
   const [input, setInput] = useState("");
-  const [pendingChanges, setPendingChanges] = useState([]);
   const [account, setAccount] = useState(null);
   const [contract, setContract] = useState(null);
+  const [pending, setPending] = useState([]);
 
   useEffect(() => {
     async function setup() {
-      if (!window.ethereum) return alert("Install MetaMask");
+      if (!window.ethereum) return;
 
       const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const abi = TodoContract.abi;
-
       await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const abi = TodoContract.abi || TodoContract;
+
+      const c = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
 
       setAccount(await signer.getAddress());
-      setContract(new ethers.Contract(TODO_CONTRACT_ADDRESS, abi, signer));
+      setContract(c);
     }
     setup();
   }, []);
 
-  const addLocalTask = () => {
+  useEffect(() => {
+    if (contract) loadFromChain();
+  }, [contract]);
+
+  async function loadFromChain() {
+    try {
+      const data = await contract.getAllTasks();
+      const list = data
+        .filter((t) => !t.deleted)
+        .map((t) => ({
+          id: Number(t.id),
+          content: t.content,
+          completed: t.completed,
+        }));
+      setTasks(list);
+    } catch {}
+  }
+
+  function addLocal() {
     if (!input.trim()) return;
-    const newTask = {
-      id: Date.now(),
+
+    const task = {
+      id: "temp-" + Date.now(),
       content: input,
       completed: false,
     };
-    setTasks([...tasks, newTask]);
-    setPendingChanges([...pendingChanges, { type: "add", task: newTask }]);
+
+    setTasks([...tasks, task]);
+    setPending([...pending, { type: "add", task }]);
     setInput("");
-  };
+  }
 
-  const toggleLocal = (id) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
-    setPendingChanges([...pendingChanges, { type: "toggle", id }]);
-  };
+  function toggleLocal(id) {
+    setTasks(tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)));
+    setPending([...pending, { type: "toggle", id }]);
+  }
 
-  const deleteLocal = (id) => {
-    setTasks(tasks.filter(t => t.id !== id));
-    setPendingChanges([...pendingChanges, { type: "delete", id }]);
-  };
+  function deleteLocal(id) {
+    setTasks(tasks.filter((t) => t.id !== id));
+    setPending([...pending, { type: "delete", id }]);
+  }
 
-  const syncOnChain = async () => {
-    for (const change of pendingChanges) {
+  async function sync() {
+    if (!contract) return;
+    if (pending.length === 0) return;
+
+    const idMap = {};
+
+    for (const change of pending) {
       if (change.type === "add") {
         const tx = await contract.createTask(change.task.content);
+        const receipt = await tx.wait();
+
+        const log = receipt.logs.find((l) => l.fragment?.name === "TaskCreated");
+        const realId = Number(log.args.id);
+
+        idMap[change.task.id] = realId;
+      }
+    }
+
+    const updatedPending = pending
+      .filter((p) => p.type !== "add")
+      .map((p) => {
+        let newId = p.id;
+        if (typeof newId === "string" && newId.startsWith("temp-")) {
+          newId = idMap[newId];
+        }
+        return { ...p, id: newId };
+      });
+
+    for (const item of updatedPending) {
+      if (item.type === "toggle") {
+        const tx = await contract.toggleComplete(item.id);
         await tx.wait();
       }
-      if (change.type === "toggle") {
-        const tx = await contract.toggleComplete(change.id);
-        await tx.wait();
-      }
-      if (change.type === "delete") {
-        const tx = await contract.deleteTask(change.id);
+      if (item.type === "delete") {
+        const tx = await contract.deleteTask(item.id);
         await tx.wait();
       }
     }
-    alert("Synced with blockchain!");
-    setPendingChanges([]);
-  };
+
+    setPending([]);
+    await loadFromChain();
+    alert("Synced");
+  }
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h2>Todo (Off-Chain First)</h2>
-      <input value={input} onChange={(e) => setInput(e.target.value)} />
-      <button onClick={addLocalTask}>Add</button>
+    <div style={{ padding: "2rem", fontFamily: "Arial" }}>
+      <h1>Todo </h1>
 
-      <ul>
-        {tasks.map(t => (
-          <li key={t.id}>
-            <span style={{ textDecoration: t.completed ? "line-through" : "" }}>
+      <div style={{ marginBottom: "1rem" }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Local task"
+          style={{
+            padding: "0.5rem",
+            marginRight: "0.5rem",
+            width: "250px",
+            borderRadius: "6px",
+            border: "1px solid #ccc",
+          }}
+        />
+        <button
+          onClick={addLocal}
+          style={{
+            padding: "0.5rem 1rem",
+            background: "green",
+            color: "white",
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+          }}
+        >
+          Add Local
+        </button>
+      </div>
+
+      <h3>Pending: {pending.length}</h3>
+
+      <button
+        onClick={sync}
+        disabled={pending.length === 0}
+        style={{
+          padding: "0.6rem 1rem",
+          background: pending.length ? "purple" : "gray",
+          color: "white",
+          border: "none",
+          borderRadius: "6px",
+          cursor: pending.length ? "pointer" : "not-allowed",
+          marginBottom: "1.5rem",
+        }}
+      >
+        Sync to Blockchain
+      </button>
+
+      <ul style={{ listStyle: "none", padding: 0 }}>
+        {tasks.map((t) => (
+          <li
+            key={t.id}
+            style={{
+              marginBottom: "0.5rem",
+              background: "#f0f0f0",
+              color: "black",
+              padding: "0.5rem",
+              borderRadius: "8px",
+              width: "320px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span style={{ textDecoration: t.completed ? "line-through" : "none" }}>
               {t.content}
             </span>
-            <button onClick={() => toggleLocal(t.id)}>Toggle</button>
-            <button onClick={() => deleteLocal(t.id)}>Delete</button>
+
+            <div>
+              <button
+                onClick={() => toggleLocal(t.id)}
+                style={{
+                  marginRight: "0.5rem",
+                  background: "#007BFF",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "0.3rem 0.6rem",
+                  cursor: "pointer",
+                }}
+              >
+                Toggle
+              </button>
+
+              <button
+                onClick={() => deleteLocal(t.id)}
+                style={{
+                  background: "#E74C3C",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "0.3rem 0.6rem",
+                  cursor: "pointer",
+                }}
+              >
+                Delete
+              </button>
+            </div>
           </li>
         ))}
       </ul>
-
-      <button
-        style={{ marginTop: 20, background: "green", color: "white" }}
-        onClick={syncOnChain}
-      >
-        Sync to Blockchain (Only 1 popup)
-      </button>
     </div>
   );
 }
-
-export default App;
