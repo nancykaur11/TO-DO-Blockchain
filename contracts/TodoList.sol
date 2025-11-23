@@ -18,7 +18,7 @@ contract TodoList {
     event TaskToggled(uint256 id, bool completed);
     event TaskDeleted(uint256 id);
 
-    function createTask(string calldata _content) external {
+    function createTask(string calldata _content) public {
         require(bytes(_content).length > 0, "Empty content");
         taskCount++;
         tasks[taskCount] = Task(taskCount, _content, false, false);
@@ -26,7 +26,7 @@ contract TodoList {
         emit TaskCreated(taskCount, _content);
     }
 
-    function toggleComplete(uint256 _id) external {
+  function toggleComplete(uint256 _id) public {
         Task storage t = tasks[_id];
         require(t.id != 0, "Task not found");
         require(!t.deleted, "Task deleted");
@@ -34,7 +34,7 @@ contract TodoList {
         emit TaskToggled(_id, t.completed);
     }
 
-    function deleteTask(uint256 _id) external {
+   function deleteTask(uint256 _id) public {
         Task storage t = tasks[_id];
         require(t.id != 0, "Task not found");
         require(!t.deleted, "Already deleted");
@@ -49,5 +49,27 @@ contract TodoList {
             out[i] = tasks[taskIds[i]];
         }
         return out;
+    }
+
+  function batchActions(
+        uint8[] calldata actionTypes,
+        uint256[] calldata ids,
+        string[] calldata contents
+    ) external {
+        require(
+            actionTypes.length == ids.length &&
+            actionTypes.length == contents.length,
+            "Length mismatch"
+        );
+
+        for (uint256 i = 0; i < actionTypes.length; i++) {
+            if (actionTypes[i] == 1) {
+                createTask(contents[i]);
+            } else if (actionTypes[i] == 2) {
+                toggleComplete(ids[i]);
+            } else if (actionTypes[i] == 3) {
+                deleteTask(ids[i]);
+            }
+        }
     }
 }

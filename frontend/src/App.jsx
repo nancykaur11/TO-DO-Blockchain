@@ -70,49 +70,131 @@ export default function App() {
     setPending([...pending, { type: "delete", id }]);
   }
 
-  async function sync() {
-    if (!contract) return;
-    if (pending.length === 0) return;
+  // async function sync() {
+  //   if (!contract) return;
+  //   if (pending.length === 0) return;
 
-    const idMap = {};
+  //   const idMap = {};
 
-    for (const change of pending) {
-      if (change.type === "add") {
-        const tx = await contract.createTask(change.task.content);
-        const receipt = await tx.wait();
+  //   for (const change of pending) {
+  //     if (change.type === "add") {
+  //       const tx = await contract.createTask(change.task.content);
+  //       const receipt = await tx.wait();
 
-        const log = receipt.logs.find((l) => l.fragment?.name === "TaskCreated");
-        const realId = Number(log.args.id);
+  //       const log = receipt.logs.find((l) => l.fragment?.name === "TaskCreated");
+  //       const realId = Number(log.args.id);
 
-        idMap[change.task.id] = realId;
-      }
+  //       idMap[change.task.id] = realId;
+  //     }
+  //   }
+
+  //   const updatedPending = pending
+  //     .filter((p) => p.type !== "add")
+  //     .map((p) => {
+  //       let newId = p.id;
+  //       if (typeof newId === "string" && newId.startsWith("temp-")) {
+  //         newId = idMap[newId];
+  //       }
+  //       return { ...p, id: newId };
+  //     });
+
+  //   for (const item of updatedPending) {
+  //     if (item.type === "toggle") {
+  //       const tx = await contract.toggleComplete(item.id);
+  //       await tx.wait();
+  //     }
+  //     if (item.type === "delete") {
+  //       const tx = await contract.deleteTask(item.id);
+  //       await tx.wait();
+  //     }
+  //   }
+
+  //   setPending([]);
+  //   await loadFromChain();
+  //   alert("Synced");
+  // }
+
+async function sync() {
+  if (!contract) return;
+  if (pending.length === 0) return;
+
+  const actions = [];
+  const ids = [];
+  const contents = [];
+
+  // 1) Handle ADD actions first → create real IDs
+  for (const p of pending) {
+    if (p.type === "add") {
+      actions.push(1);            // create
+      ids.push(0);                // unused
+      contents.push(p.task.content);
     }
-
-    const updatedPending = pending
-      .filter((p) => p.type !== "add")
-      .map((p) => {
-        let newId = p.id;
-        if (typeof newId === "string" && newId.startsWith("temp-")) {
-          newId = idMap[newId];
-        }
-        return { ...p, id: newId };
-      });
-
-    for (const item of updatedPending) {
-      if (item.type === "toggle") {
-        const tx = await contract.toggleComplete(item.id);
-        await tx.wait();
-      }
-      if (item.type === "delete") {
-        const tx = await contract.deleteTask(item.id);
-        await tx.wait();
-      }
-    }
-
-    setPending([]);
-    await loadFromChain();
-    alert("Synced");
   }
+
+  // Send add actions first (batch 1)
+  let addReceipt;
+  if (actions.length > 0) {
+    const tx = await contract.batchActions(actions, ids, contents);
+    addReceipt = await tx.wait();
+  }
+
+  // Map events → real on-chain IDs
+  let createdIds = [];
+  if (addReceipt) {
+    createdIds = addReceipt.logs
+      .filter((l) => l.fragment?.name === "TaskCreated")
+      .map((l) => Number(l.args.id));
+  }
+
+  // Build mapping temp → real
+  const tempToReal = {};
+  let idx = 0;
+  for (const p of pending) {
+    if (p.type === "add") {
+      tempToReal[p.task.id] = createdIds[idx++];
+    }
+  }
+
+  // 2) Build batch for toggle + delete, but skip temporary IDs
+  const actions2 = [];
+  const ids2 = [];
+  const contents2 = [];
+
+  for (const p of pending) {
+
+    let realId = p.id;
+
+    // convert temp-xx → real on-chain id
+    if (String(realId).startsWith("temp-")) {
+      if (!tempToReal[realId]) continue; // skip
+      realId = tempToReal[realId];
+    }
+
+    if (p.type === "toggle") {
+      actions2.push(2);
+      ids2.push(realId);
+      contents2.push("");
+    }
+
+    if (p.type === "delete") {
+      actions2.push(3);
+      ids2.push(realId);
+      contents2.push("");
+    }
+  }
+
+  // Send batch 2
+  if (actions2.length > 0) {
+    const tx2 = await contract.batchActions(actions2, ids2, contents2);
+    await tx2.wait();
+  }
+
+  setPending([]);
+  await loadFromChain();
+  alert("Synced!");
+}
+
+
 
   return (
     <div style={{ padding: "2rem", fontFamily: "Arial" }}>
